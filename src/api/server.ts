@@ -7,26 +7,45 @@ import { getAvailability } from '../services/availability';
 import { SlotTakenError, ValidationError } from '../utils/errors';
 
 const app = express();
-const allowedOrigins = ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'];
+
+// --- CORS: allow localhost (dev) + any netlify.app subdomain (prod) ---
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  /^https:\/\/.*\.netlify\.app$/, // matches https://your-site.netlify.app
+];
+
 app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl) or allowed origins
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+  origin: (origin, callback) => {
+    // allow requests with no origin (curl, mobile apps, server-to-server)
+    if (!origin) return callback(null, true);
+    const allowed = allowedOrigins.some((o) =>
+      typeof o === 'string' ? o === origin : o.test(origin),
+    );
+    if (allowed) return callback(null, true);
+    callback(new Error(`Blocked by CORS: ${origin}`));
   },
-  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-  credentials: true
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
 app.use(express.json());
 
-// 1. Endpoint for the "Select Time" dropdown
+// --- Health check ---
+app.get('/api/health', async (_req, res) => {
+  try {
+    await db.raw('SELECT 1');
+    res.json({ status: 'ok', db: 'connected' });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', db: err.message });
+  }
+});
+
+// --- 1. Availability ---
 app.get('/api/availability', async (req, res) => {
   try {
     const { date, partySize, preference } = req.query;
-
     if (!date || !partySize) {
       return res.status(400).json({ error: 'Date and partySize are required' });
     }
@@ -51,7 +70,7 @@ app.get('/api/availability', async (req, res) => {
   }
 });
 
-// 2. Endpoint for the "Confirm Reservation" button
+// --- 2. Create booking ---
 const bookingSchema = z.object({
   resourceType: z.enum(['TABLE', 'GARDEN']),
   startAt: z.string().datetime(),
@@ -98,8 +117,8 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// 3. Endpoint to GET all bookings for the Manager Dashboard
-app.get('/api/admin/bookings', async (req, res) => {
+// --- 3. Manager: list bookings ---
+app.get('/api/admin/bookings', async (_req, res) => {
   try {
     const bookings = await db('bookings')
       .join('resources', 'resources.id', 'bookings.resource_id')
@@ -111,7 +130,7 @@ app.get('/api/admin/bookings', async (req, res) => {
         'bookings.start_at',
         'bookings.status',
         'bookings.manage_code',
-        'resources.name as table_name'
+        'resources.name as table_name',
       )
       .orderBy('bookings.start_at', 'asc');
 
@@ -122,22 +141,21 @@ app.get('/api/admin/bookings', async (req, res) => {
   }
 });
 
-// 4. Endpoint to UPDATE booking status (Seat, Cancel, Complete)
+// --- 4. Manager: update booking status ---
 app.patch('/api/admin/bookings/:id/status', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    
     const updated = await transitionBooking(id, status);
-    
     res.json(updated);
   } catch (err: any) {
-    console.error("Status update error:", err);
+    console.error('Status update error:', err);
     res.status(400).json({ error: err.message || 'Failed to update status' });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`API server running on http://localhost:${PORT}`);
+// --- Bind to 0.0.0.0 so Render can detect the port ---
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`API server running on port ${PORT}`);
 });
