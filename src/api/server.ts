@@ -112,8 +112,17 @@ app.post('/api/bookings', async (req, res) => {
     if (err instanceof ValidationError) {
       return res.status(422).json({ error: err.message });
     }
-    console.error(err);
-    res.status(500).json({ error: 'Internal server error' });
+          console.error('=== BOOKING ERROR ===');
+    console.error('Name:', err?.name);
+    console.error('Message:', err?.message);
+    console.error('Code:', err?.code);
+    console.error('Detail:', err?.detail);
+    console.error('Stack:', err?.stack);
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: err?.message,
+      code: err?.code,
+    });
   }
 });
 

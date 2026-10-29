@@ -6,7 +6,9 @@
     "start": "ts-node src/api/server.ts",
     "build": "vite build",
     "dev": "vite",
-    "api": "ts-node src/api/server.ts"
+    "api": "ts-node src/api/server.ts",
+    "migrate:latest": "ts-node node_modules/.bin/knex --knexfile knexfile.ts migrate:latest",
+    "seed:run": "ts-node node_modules/.bin/knex --knexfile knexfile.ts seed:run"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
